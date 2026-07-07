@@ -5,9 +5,10 @@ import requests
 import threading
 import time
 import sys
+import signal
 
 CONTROLLER_IP = "192.168.50.240" 
-SWITCH_DPID = "00:00:00:e0:4c:68:00:28" 
+SWITCH_DPID = "00:00:54:af:97:bf:39:4f" 
 MONITOR_INTERFACE = "Ethernet" 
 
 # Sanity Check Threshold to prevent False Positives on background noise
@@ -105,10 +106,18 @@ def cleanup():
         except: pass
     sys.exit(0)
 
+# Register OS signals for graceful shutdown (ensures cleanup runs on Ctrl+C / kill)
+signal.signal(signal.SIGINT, lambda signum, frame: cleanup())
+try:
+    signal.signal(signal.SIGTERM, lambda signum, frame: cleanup())
+except AttributeError:
+    # Windows may not have SIGTERM; ignore if unavailable
+    pass
+
 threading.Thread(target=analyze_traffic, daemon=True).start()
 print("[*] ML Agent is monitoring traffic...")
 try:
-    # FIX: Sniff all IP traffic to catch UDP
+    # FIX: Sniff all IP traffic to catch UDPQ
     sniff(iface=MONITOR_INTERFACE, filter="ip", prn=packet_handler, store=False)
 except KeyboardInterrupt:
     cleanup()

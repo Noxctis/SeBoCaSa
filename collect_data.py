@@ -5,7 +5,7 @@ import csv
 import sys
 import os
 
-MONITOR_INTERFACE = "Ethernet"
+MONITOR_INTERFACE = "Ethernet" # Replace with your interface
 stats = {}
 stats_lock = threading.Lock()
 
@@ -13,25 +13,19 @@ def packet_handler(pkt):
     if IP in pkt:
         ip = pkt[IP].src
         length = len(pkt)
-        is_tcp = 1 if TCP in pkt else 0
-        is_udp = 1 if UDP in pkt else 0
-        is_icmp = 1 if ICMP in pkt else 0
-        
         with stats_lock:
             if ip not in stats:
-                stats[ip] = {'count': 0, 'bytes': 0, 'tcp': 0, 'udp': 0, 'icmp': 0}
-            stats[ip]['count'] += 1
-            stats[ip]['bytes'] += length
-            stats[ip]['tcp'] += is_tcp
-            stats[ip]['udp'] += is_udp
-            stats[ip]['icmp'] += is_icmp
+                stats[ip] = [0, 0]
+            stats[ip][0] += 1       # Count
+            stats[ip][1] += length  # Bytes
 
 def log_traffic(label, duration):
-    global stats
+    print(f"[*] Recording 3 features (ALL IP PROTOCOLS) for {duration} seconds. Label: {label}")
+    
     if not os.path.isfile('training_data.csv'):
         with open('training_data.csv', 'w', newline='') as f:
             writer = csv.writer(f)
-            writer.writerow(['pps', 'bps', 'avg_size', 'tcp_ratio', 'udp_ratio', 'icmp_ratio', 'label'])
+            writer.writerow(['pps', 'bps', 'avg_packet_size', 'label'])
 
     with open('training_data.csv', 'a', newline='') as f:
         writer = csv.writer(f)
@@ -43,25 +37,24 @@ def log_traffic(label, duration):
                 stats.clear()
                 
             if not current_stats:
-                writer.writerow([0, 0, 0, 0, 0, 0, label])
+                writer.writerow([0, 0, 0, label])
             else:
                 for ip, data in current_stats.items():
-                    pps = data['count']
-                    bps = data['bytes']
+                    pps = data[0]
+                    bps = data[1]
                     avg_size = bps / pps if pps > 0 else 0
-                    tcp_r = data['tcp'] / pps
-                    udp_r = data['udp'] / pps
-                    icmp_r = data['icmp'] / pps
-                    writer.writerow([pps, bps, avg_size, tcp_r, udp_r, icmp_r, label])
+                    writer.writerow([pps, bps, avg_size, label])
             
             sys.stdout.write(f"\r[+] Progress: {i+1}/{duration}s")
             sys.stdout.flush()
             
-    print("\n[+] Collection finished.")
+    print("\n[+] Data collection finished.")
     os._exit(0)
 
 if __name__ == '__main__':
     label = int(sys.argv[1])
     duration = int(sys.argv[2])
     threading.Thread(target=log_traffic, args=(label, duration), daemon=True).start()
-    sniff(iface=MONITOR_INTERFACE, prn=packet_handler, store=False)
+    
+    # FIX: Changed 'icmp' to 'ip' to capture UDP and mixed vectors
+    sniff(iface=MONITOR_INTERFACE, filter="ip", prn=packet_handler, store=False)
