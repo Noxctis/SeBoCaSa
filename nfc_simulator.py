@@ -6,7 +6,7 @@ import os
 
 # If running on PC2 (POS Terminal), target = PC4's IP (192.168.50.50)
 # If running on PC4 (Auth Server), target = PC2's IP (192.168.50.40)
-TARGET_IP = "192.168.50.50" 
+TARGET_IP = "192.168.50.40" 
 PAYMENT_PORT = 8443 
 
 def simulate_nfc_handshake():
