@@ -6,7 +6,7 @@ import random
 import time
 import sys
 
-TARGET_IP = "192.168.50.50"
+TARGET_IP = "192.168.50.40"
 TARGET_PORT = 80
 attack_flag = False
 threads = []
