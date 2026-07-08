@@ -17,6 +17,10 @@ MIN_PPS_THRESHOLD = 10
 try:
     print("[*] Loading 3-feature protocol-agnostic dataset...")
     df = pd.read_csv('training_data.csv')
+    
+    # FIX: Automatically delete any blank or corrupted rows
+    df.dropna(inplace=True)
+    
     features = ['pps', 'bps', 'avg_size']
     clf = DecisionTreeClassifier(max_depth=5, criterion='entropy', random_state=42)
     clf.fit(df[features].values, df['label'])
@@ -36,7 +40,7 @@ def block_attacker(ip):
     payload = {
         "switch": SWITCH_DPID, 
         "name": f"block-{ip}",
-        "priority": "32767", 
+        "priority": "40000", 
         "eth_type": "0x0800",
         # Removed the /32. Some versions of Floodlight reject the CIDR notation.
         "ipv4_src": f"{ip}", 
@@ -66,11 +70,35 @@ def block_attacker(ip):
 def packet_handler(pkt):
     if IP in pkt:
         ip = pkt[IP].src
-        with stats_lock:
-            if ip not in traffic_stats:
-                traffic_stats[ip] = [0, 0]
-            traffic_stats[ip][0] += 1       # Count
-            traffic_stats[ip][1] += len(pkt) # Bytes
+        length = len(pkt)
+        
+        # --- STATEFUL INSPECTION LOGIC ---
+        is_initiator = False
+        
+        if ICMP in pkt:
+            # Type 8 is an Echo Request (The actual ping).
+            # This automatically ignores Type 3 (Destination Unreachable) reply storms!
+            if pkt[ICMP].type == 8: 
+                is_initiator = True
+                
+        elif TCP in pkt:
+            # Only count packets attempting to START a connection (SYN flag)
+            # This ignores normal ACKs and RST reply storms.
+            if pkt[TCP].flags == 'S': 
+                is_initiator = True
+                
+        elif UDP in pkt:
+            # UDP is stateless. We count it, but because the victim's OS replies 
+            # using ICMP (which we filtered above), the victim remains safe.
+            is_initiator = True
+
+        # Only add to the ML statistics if the PC is actively initiating the traffic
+        if is_initiator:
+            with stats_lock:
+                if ip not in traffic_stats:
+                    traffic_stats[ip] = [0, 0]
+                traffic_stats[ip][0] += 1       # Count
+                traffic_stats[ip][1] += length  # Bytes
 
 def analyze_traffic():
     global traffic_stats
