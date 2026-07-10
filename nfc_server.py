@@ -1,31 +1,49 @@
 import socket
 import threading
+import json
 import os
 
 PAYMENT_PORT = 8443
 
 def handle_transaction(conn, addr):
-    print(f"[+] Received encrypted SPDL Payload from POS Terminal at {addr[0]}")
-    print(f"[*] (Step 4-6) AS -> POS: Verifying SignatureAS and Conf2...")
-    print(f"[+] Payment Authorized.\n")
-    conn.close()
+    try:
+        # Receive Step 3 from POS
+        data = conn.recv(4096).decode('utf-8')
+        if not data: return
+        
+        payload = json.loads(data)
+        print(f"\n[+] Received SPDL Payload from POS {addr[0]}")
+        print(f"    - Transaction Data (TD): {payload.get('TD')}")
+        print(f"    - Card Nonce (RandomC): {payload.get('RandomC')}")
+        print(f"    - Card Signature: {payload.get('SignatureC')}")
+        
+        print("[*] (Step 4) Verifying Certificates and generating AS Response...")
+        
+        # Construct Step 4 (AS -> POS)
+        response_payload = {
+            "Conf1": f"POS, C, AS, K(POS,C), {payload.get('TD')}, {payload.get('RandomC')}, CertIB, AuthC",
+            "Conf2": f"POS, C, AS, K(POS,C), {payload.get('TD')}, {payload.get('RandomC')}, AuthPOS",
+            "SignatureAS": "Hash(POS, C, AS, K(POS,C), TD, RandomC, AuthPOS)_secKey(AS)"
+        }
+        
+        conn.sendall(json.dumps(response_payload).encode('utf-8'))
+        print("[+] Sent {Conf1, Conf2} K(AS,POS) to POS Terminal.")
+        print("[+] Payment Authorized.")
+    except Exception as e:
+        print(f"[-] Transaction Error: {e}")
+    finally:
+        conn.close()
 
-def start_server():
+if __name__ == "__main__":
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    # 0.0.0.0 allows it to listen on all active Ethernet adapters
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server.bind(('0.0.0.0', PAYMENT_PORT))
     server.listen(5)
     
-    print(f"[*] NFC Authentication Server (AS) Active.")
-    print(f"[*] Listening for incoming POS transactions on TCP Port {PAYMENT_PORT}...\n")
-    
+    print(f"[*] NFC Authentication Server (AS) Active on Port {PAYMENT_PORT}")
     try:
         while True:
             conn, addr = server.accept()
             threading.Thread(target=handle_transaction, args=(conn, addr), daemon=True).start()
     except KeyboardInterrupt:
-        print("\n[!] Shutting down Authentication Server.")
         os._exit(0)
-
-if __name__ == "__main__":
-    start_server()
