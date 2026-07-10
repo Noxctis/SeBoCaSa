@@ -5,7 +5,7 @@ import os
 import random
 import sys
 
-TARGET_IP = "192.168.50.40"
+TARGET_IP = "192.168.50.50"
 TARGET_PORT = 8443
 attack_flag = False
 threads = []
