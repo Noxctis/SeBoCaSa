@@ -5,6 +5,7 @@ import requests
 import threading
 import time
 import sys
+import signal
 
 CONTROLLER_IP = "192.168.50.240"
 SWITCH_DPID = "00:00:00:e0:4c:68:00:28" 
@@ -65,7 +66,7 @@ def analyze_traffic():
             if clf.predict([[pps, bps, avg_size, tcp_r, udp_r, icmp_r]])[0] == 1 and ip not in blocked_ips:
                 if ip not in WHITELIST_IPS: block_attacker(ip)
 
-def cleanup():
+def cleanup(sig=None, frame=None):
     print("\n[!] Shutting down. Removing OpenFlow drop rules...")
     for ip in blocked_ips:
         try:
@@ -75,9 +76,9 @@ def cleanup():
     sys.exit(0)
 
 if __name__ == '__main__':
+    signal.signal(signal.SIGINT, cleanup)
+    
     threading.Thread(target=analyze_traffic, daemon=True).start()
-    print("[*] ML Agent is monitoring traffic...")
-    try: 
-        sniff(iface=MONITOR_INTERFACE, filter="ip", prn=packet_handler, store=False)
-    except KeyboardInterrupt: 
-        cleanup()
+    print("[*] ML Agent is monitoring traffic. Press Ctrl+C to stop and clear rules...")
+    
+    sniff(iface=MONITOR_INTERFACE, filter="ip", prn=packet_handler, store=False)
