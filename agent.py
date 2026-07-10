@@ -65,7 +65,19 @@ def analyze_traffic():
             if clf.predict([[pps, bps, avg_size, tcp_r, udp_r, icmp_r]])[0] == 1 and ip not in blocked_ips:
                 if ip not in WHITELIST_IPS: block_attacker(ip)
 
+def cleanup():
+    print("\n[!] Shutting down. Removing OpenFlow drop rules...")
+    for ip in blocked_ips:
+        try:
+            requests.delete(f"http://{CONTROLLER_IP}:8080/wm/staticflowpusher/json", json={"name": f"block-{ip}"})
+        except:
+            pass
+    sys.exit(0)
+
 if __name__ == '__main__':
     threading.Thread(target=analyze_traffic, daemon=True).start()
-    try: sniff(iface=MONITOR_INTERFACE, filter="ip", prn=packet_handler, store=False)
-    except KeyboardInterrupt: sys.exit(0)
+    print("[*] ML Agent is monitoring traffic...")
+    try: 
+        sniff(iface=MONITOR_INTERFACE, filter="ip", prn=packet_handler, store=False)
+    except KeyboardInterrupt: 
+        cleanup()
