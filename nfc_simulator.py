@@ -14,14 +14,12 @@ def simulate_nfc_handshake():
         try:
             time.sleep(random.uniform(2.0, 5.0))
             
-            # Generate variables from Table III
             td_nonce = str(uuid.uuid4())[:8]
             random_c = str(uuid.uuid4())[:8]
             
             print(f"\n[+] --- INITIATING NFC TRANSACTION ---")
             print(f"[*] (Step 1-2) POS <-> Card completed locally.")
             
-            # Construct Step 3 (POS -> AS)
             request_payload = {
                 "C": "Card_ID_9921",
                 "POS": "POS_Terminal_01",
@@ -37,11 +35,11 @@ def simulate_nfc_handshake():
             print(f"[*] (Step 3) Sending POS, AS, C, {{TD, (2)}}K(AS,POS) to {TARGET_IP}")
             
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(2.0)
+            # INCREASED TIMEOUT to 10 seconds for SDN Flow Setup
+            sock.settimeout(10.0) 
             sock.connect((TARGET_IP, PAYMENT_PORT)) 
             sock.sendall(json.dumps(request_payload).encode('utf-8'))
             
-            # Wait for Step 4 (AS -> POS)
             response = sock.recv(4096).decode('utf-8')
             if response:
                 as_data = json.loads(response)
@@ -50,8 +48,12 @@ def simulate_nfc_handshake():
             
             sock.close()
             
-        except Exception:
-            print(f"[-] !!! NFC TRANSACTION FAILED: Connection Timeout !!!")
+        except socket.timeout:
+            print(f"[-] !!! TRANSACTION FAILED: Socket Timeout (Check SDN Controller or Network Route)")
+        except ConnectionRefusedError:
+            print(f"[-] !!! TRANSACTION FAILED: Connection Refused (Check Windows Firewall on PC4)")
+        except Exception as e:
+            print(f"[-] !!! TRANSACTION FAILED: {e}")
 
 if __name__ == "__main__":
     print(f"[*] Starting SPDL NFC Protocol targeting {TARGET_IP}...")
