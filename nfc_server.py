@@ -1,5 +1,8 @@
-import socket, json, base64, os
-from cryptography.hazmat.primitives.asymmetric import padding, rsa
+import socket
+import json
+import base64
+import os
+from cryptography.hazmat.primitives.asymmetric import rsa, padding
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
@@ -11,12 +14,14 @@ K_AS_POS = base64.b64decode("gY/wYmPz8qE6Oq3x6nF5m6XyA3b9Z1c0vM/wYmPz8qE=")
 
 # --- CRYPTO HELPERS ---
 def generate_as_rsa():
-    priv = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    from cryptography.hazmat.primitives.asymmetric import rsa
-    return priv
+    return rsa.generate_private_key(public_exponent=65537, key_size=2048)
 
 def sign_data(priv_key, data):
-    signature = priv_key.sign(data.encode(), padding.PSS(mgf=padding.MGF1(hashes.SHA256()), salt_length=padding.PSS.MAX_LENGTH), hashes.SHA256())
+    signature = priv_key.sign(
+        data.encode(), 
+        padding.PSS(mgf=padding.MGF1(hashes.SHA256()), salt_length=padding.PSS.MAX_LENGTH), 
+        hashes.SHA256()
+    )
     return base64.b64encode(signature).decode()
 
 def hash_data(data):
@@ -38,13 +43,15 @@ def sym_decrypt(key, b64_data):
 def asym_encrypt(pub_key_pem, data):
     pub_key = serialization.load_pem_public_key(pub_key_pem.encode())
     aes_key = AESGCM.generate_key(bit_length=256)
-    enc_aes_key = pub_key.encrypt(aes_key, padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()), algorithm=hashes.SHA256(), label=None))
+    enc_aes_key = pub_key.encrypt(
+        aes_key, 
+        padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()), algorithm=hashes.SHA256(), label=None)
+    )
     ct = base64.b64decode(sym_encrypt(aes_key, data))
     return base64.b64encode(enc_aes_key + ct).decode()
 
 def run_server():
     print("[*] Generating AS RSA Keys...")
-    from cryptography.hazmat.primitives.asymmetric import rsa
     as_priv = generate_as_rsa()
     
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -72,7 +79,7 @@ def run_server():
                     td_nonce = step_3["TD"]
                     step_2 = step_3["Step2"]
                     random_c = step_2["RandomC"]
-                    c_pub_cert = step_2["CertC"] # Extract C's public key
+                    c_pub_cert = step_2["CertC"] 
                     
                     # AS generates the K(POS,C) session key
                     k_pos_c = AESGCM.generate_key(bit_length=256)
@@ -82,7 +89,7 @@ def run_server():
                     # STEP 4: AS -> POS
                     # ==========================================
                     conf1 = {
-                        "POS":"POS", "C":"C", "AS":"AS", "K_POS_C": k_pos_c_b64, 
+                        "POS": "POS", "C": "C", "AS": "AS", "K_POS_C": k_pos_c_b64, 
                         "TD": td_nonce, "RandomC": random_c, "AuthC": "Verified"
                     }
                     
@@ -90,7 +97,7 @@ def run_server():
                     sig_as = sign_data(as_priv, h_as)
                     
                     conf2_plaintext = json.dumps({
-                        "POS":"POS", "C":"C", "AS":"AS", "K_POS_C": k_pos_c_b64,
+                        "POS": "POS", "C": "C", "AS": "AS", "K_POS_C": k_pos_c_b64,
                         "TD": td_nonce, "RandomC": random_c, "AuthPOS": "Verified",
                         "SigAS": sig_as
                     })
@@ -107,7 +114,7 @@ def run_server():
                     }
                     
                     client.sendall(json.dumps(response_payload).encode('utf-8'))
-                    print(f"[*] Processed Step 4. Sent Encrypted {Conf1, Conf2} back to POS.")
+                    print(f"[*] Processed Step 4. Sent Encrypted {{Conf1, Conf2}} back to POS.")
                     
             except json.JSONDecodeError:
                 pass 
