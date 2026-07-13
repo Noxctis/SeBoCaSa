@@ -1,4 +1,4 @@
-from scapy.all import sniff, IP, TCP, UDP, ICMP
+from scapy.all import sniff, IP, TCP, UDP, ICMP, AsyncSniffer
 from sklearn.tree import DecisionTreeClassifier
 import pandas as pd
 import requests
@@ -8,10 +8,26 @@ import sys
 import signal
 
 CONTROLLER_IP = "192.168.50.240"
-SWITCH_DPID = "00:00:00:e0:4c:68:00:28" 
 MONITOR_INTERFACE = "Ethernet"
 MIN_PPS_THRESHOLD = 10
 WHITELIST_IPS = {"192.168.50.40", "192.168.50.50", "192.168.50.240"}
+SWITCH_DPID = ""
+
+def get_switch_dpid():
+    print("[*] Polling Floodlight Controller for active switches...")
+    try:
+        response = requests.get(f"http://{CONTROLLER_IP}:8080/wm/core/controller/switches/json", timeout=5)
+        if response.status_code == 200:
+            switches = response.json()
+            if switches:
+                dpid = switches[0].get('switchDPID')
+                print(f"[+] Successfully locked onto Switch DPID: {dpid}")
+                return dpid
+        print("[-] No switches connected to the controller.")
+        sys.exit(1)
+    except requests.exceptions.RequestException as e:
+        print(f"[-] Failed to reach Floodlight API: {e}")
+        sys.exit(1)
 
 try:
     df = pd.read_csv('training_data.csv')
@@ -28,9 +44,20 @@ blocked_ips = set()
 def block_attacker(ip):
     if ip in blocked_ips: return
     print(f"\n[!!!] VOLUMETRIC FLOOD DETECTED: {ip} - DEPLOYING OPENFLOW RULE")
-    payload = {"switch": SWITCH_DPID, "name": f"block-{ip}", "priority": "32767", "eth_type": "0x0800", "ipv4_src": f"{ip}", "active": "true", "actions": ""}
+    
+    # Note: If Floodlight is v1.0+, the endpoint is often /wm/staticentrypusher/json
+    payload = {
+        "switch": SWITCH_DPID, 
+        "name": f"block-{ip}", 
+        "priority": "32767", 
+        "eth_type": "0x0800", 
+        "ipv4_src": f"{ip}", 
+        "active": "true", 
+        "actions": ""
+    }
     try:
-        if requests.post(f"http://{CONTROLLER_IP}:8080/wm/staticflowpusher/json", json=payload).status_code == 200: blocked_ips.add(ip)
+        if requests.post(f"http://{CONTROLLER_IP}:8080/wm/staticflowpusher/json", json=payload).status_code == 200: 
+            blocked_ips.add(ip)
     except: pass
 
 def packet_handler(pkt):
@@ -63,6 +90,7 @@ def analyze_traffic():
             udp_r = data['udp'] / pps
             icmp_r = data['icmp'] / pps
             
+            # Use a dataframe or 2D array without feature names warning
             if clf.predict([[pps, bps, avg_size, tcp_r, udp_r, icmp_r]])[0] == 1 and ip not in blocked_ips:
                 if ip not in WHITELIST_IPS: block_attacker(ip)
 
@@ -77,6 +105,7 @@ def cleanup(sig=None, frame=None):
 
 if __name__ == '__main__':
     signal.signal(signal.SIGINT, cleanup)
+    SWITCH_DPID = get_switch_dpid()
     
     threading.Thread(target=analyze_traffic, daemon=True).start()
     print("[*] ML Agent is monitoring traffic. Press Ctrl+C to stop and clear rules...")
