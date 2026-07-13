@@ -45,20 +45,38 @@ def block_attacker(ip):
     if ip in blocked_ips: return
     print(f"\n[!!!] VOLUMETRIC FLOOD DETECTED: {ip} - DEPLOYING OPENFLOW RULE")
     
-    # Note: If Floodlight is v1.0+, the endpoint is often /wm/staticentrypusher/json
     payload = {
         "switch": SWITCH_DPID, 
-        "name": f"block-{ip}", 
-        "priority": "32767", 
+        "name": f"block-{ip.replace('.', '_')}", # Fixed naming convention for OVS
+        "priority": "32768", 
         "eth_type": "0x0800", 
         "ipv4_src": f"{ip}", 
         "active": "true", 
         "actions": ""
     }
+    
+    # Modern Floodlight Endpoint (v1.0+)
+    endpoint_new = f"http://{CONTROLLER_IP}:8080/wm/staticentrypusher/json"
+    # Legacy Floodlight Endpoint (v0.9)
+    endpoint_old = f"http://{CONTROLLER_IP}:8080/wm/staticflowpusher/json"
+    
     try:
-        if requests.post(f"http://{CONTROLLER_IP}:8080/wm/staticflowpusher/json", json=payload).status_code == 200: 
+        res = requests.post(endpoint_new, json=payload, timeout=2)
+        if res.status_code == 200:
+            print("[+] OpenFlow Rule ACCEPTED by Controller (Modern API).")
             blocked_ips.add(ip)
-    except: pass
+        else:
+            print(f"[-] Modern API rejected rule: {res.text}. Trying Legacy API...")
+            
+            res_old = requests.post(endpoint_old, json=payload, timeout=2)
+            if res_old.status_code == 200:
+                print("[+] OpenFlow Rule ACCEPTED by Controller (Legacy API).")
+                blocked_ips.add(ip)
+            else:
+                print(f"[-] Legacy API also rejected rule: {res_old.text}")
+                
+    except Exception as e:
+        print(f"[-] API Request Failed to reach Controller: {e}")
 
 def packet_handler(pkt):
     if IP in pkt:
