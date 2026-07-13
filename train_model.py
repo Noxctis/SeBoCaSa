@@ -6,7 +6,7 @@ import os
 import signal
 import sys
 
-MONITOR_INTERFACE = "Ethernet" # Change to match your agent.py interface
+MONITOR_INTERFACE = "Ethernet" 
 CSV_FILE = "training_data.csv"
 MIN_PPS_THRESHOLD = 5
 
@@ -29,7 +29,6 @@ def packet_handler(pkt):
 def collect_data(label):
     global traffic_stats
     
-    # Write header if file doesn't exist
     if not os.path.exists(CSV_FILE):
         with open(CSV_FILE, mode='w', newline='') as f:
             writer = csv.writer(f)
@@ -76,7 +75,17 @@ if __name__ == '__main__':
         print("Invalid choice. Exiting.")
         sys.exit(1)
         
+    try:
+        duration = int(input("Enter recording duration in seconds: ").strip())
+    except ValueError:
+        print("Invalid duration. Exiting.")
+        sys.exit(1)
+        
     threading.Thread(target=collect_data, args=(int(choice),), daemon=True).start()
     
-    print(f"[*] Sniffer started on {MONITOR_INTERFACE}. Press Ctrl+C to stop.")
-    sniff(iface=MONITOR_INTERFACE, filter="ip", prn=packet_handler, store=False)
+    print(f"[*] Sniffer started on {MONITOR_INTERFACE}. Recording for {duration} seconds...")
+    sniff(iface=MONITOR_INTERFACE, filter="ip", prn=packet_handler, store=False, timeout=duration)
+    
+    print(f"\n[*] Reached {duration} seconds. Stopping data collection automatically.")
+    is_collecting = False
+    sys.exit(0)
