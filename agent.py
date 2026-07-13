@@ -114,11 +114,21 @@ def analyze_traffic():
 
 def cleanup(sig=None, frame=None):
     print("\n[!] Shutting down. Removing OpenFlow drop rules...")
+    
+    endpoint_new = f"http://{CONTROLLER_IP}:8080/wm/staticentrypusher/json"
+    endpoint_old = f"http://{CONTROLLER_IP}:8080/wm/staticflowpusher/json"
+    
     for ip in blocked_ips:
+        rule_name = f"block-{ip.replace('.', '_')}"
+        payload = {"name": rule_name}
+        
         try:
-            requests.delete(f"http://{CONTROLLER_IP}:8080/wm/staticflowpusher/json", json={"name": f"block-{ip}"})
-        except:
-            pass
+            res_new = requests.delete(endpoint_new, json=payload, timeout=2)
+            res_old = requests.delete(endpoint_old, json=payload, timeout=2)
+            print(f"[+] Successfully removed OpenFlow rule: {rule_name}")
+        except Exception as e:
+            print(f"[-] Failed to contact controller to remove rule {rule_name}: {e}")
+            
     sys.exit(0)
 
 if __name__ == '__main__':
