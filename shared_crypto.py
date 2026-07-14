@@ -16,7 +16,10 @@ class NFCCryptoEngine:
     def hash_payload(*args):
         h = hashlib.sha256()
         for arg in args:
-            h.update(str(arg).encode())
+            if isinstance(arg, bytes):
+                h.update(arg)
+            else:
+                h.update(str(arg).encode())
         return h.digest()
 
     @staticmethod
