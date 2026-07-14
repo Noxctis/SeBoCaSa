@@ -1,3 +1,6 @@
+# ==========================================
+# nfc_server.py
+# ==========================================
 import socket
 from shared_crypto import *
 
@@ -51,31 +54,47 @@ def step_6_pos_verify_bankdata(msg_6, kpc):
     return None
 
 def run_server(host='0.0.0.0', port=8443):
+    tx_count = 0
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         s.bind((host, port))
         s.listen(10)
-        print(f"POS/AS Listening on {host}:{port}")
+        print(f"[*] POS/AS Listening on {host}:{port}")
         
         while True:
             conn, addr = s.accept()
+            tx_count += 1
             with conn:
+                print(f"\n--- [Server] Transaction #{tx_count} Started ---")
+                print(f"[*] Connection received from {addr[0]}:{addr[1]}")
                 try:
                     msg_1 = step_1_pos_init()
                     send_msg(conn, msg_1)
+                    print("[*] Sent Msg (1): POS Authentication Request")
                     
                     TD_card, RandomC_card, msg_2 = recv_msg(conn)
-                    msg_3 = step_3_pos_forward_to_as(TD_card, msg_2)
-                    msg_4 = step_4_as_process(msg_3)
-                    kpc_pos, msg_5 = step_5_pos_forward_to_card(msg_4)
+                    print("[*] Received Msg (2): Card Response")
                     
+                    msg_3 = step_3_pos_forward_to_as(TD_card, msg_2)
+                    print("[*] Generated Msg (3): Forwarding to AS")
+                    
+                    msg_4 = step_4_as_process(msg_3)
+                    print("[*] Generated Msg (4): AS Processed Confirmation")
+                    
+                    kpc_pos, msg_5 = step_5_pos_forward_to_card(msg_4)
                     send_msg(conn, msg_5)
+                    print("[*] Sent Msg (5): POS Forwarding AS Confirmations to Card")
+                    
                     msg_6 = recv_msg(conn)
+                    print("[*] Received Msg (6): Encrypted BankData")
                     
                     final_data = step_6_pos_verify_bankdata(msg_6, kpc_pos)
-                    print(f"Transaction verified: {final_data}")
+                    if final_data:
+                        print(f"[+] Transaction #{tx_count} SUCCESS: {final_data.decode()}")
+                    else:
+                        print(f"[-] Transaction #{tx_count} FAILED: Invalid BankData Signature")
                 except Exception as e:
-                    pass
+                    print(f"[-] Transaction #{tx_count} FAILED: {str(e)}")
 
 if __name__ == "__main__":
     run_server()
