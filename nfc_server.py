@@ -1,132 +1,81 @@
 import socket
-import json
-import base64
-import os
-from cryptography.hazmat.primitives.asymmetric import rsa, padding
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from shared_crypto import *
 
-BIND_IP = "0.0.0.0"
-PAYMENT_PORT = 8443
+def step_1_pos_init():
+    TD = os.urandom(8)
+    ReqC = b"RequestC"
+    CertP, CertAB = b"Certificate(POS)", b"Certificate(AcqBank)"
+    hash_val = crypto.hash_payload(ID_P, ID_C, TD, ReqC)
+    sig_P = crypto.sign(sk_P, hash_val)
+    return (ID_P, ID_C, ID_AS, TD, ReqC, CertP, CertAB, sig_P)
 
-# Pre-shared Symmetric Key between AS and POS (K_AS_POS)
-K_AS_POS = base64.b64decode("gY/wYmPz8qE6Oq3x6nF5m6XyA3b9Z1c0vM/wYmPz8qE=")
+def step_3_pos_forward_to_as(TD, msg_2):
+    payload = pickle.dumps((TD, msg_2))
+    encrypted_payload = crypto.encrypt_symmetric(k_AS_P, payload)
+    return (ID_P, ID_AS, ID_C, encrypted_payload)
 
-# --- CRYPTO HELPERS ---
-def generate_as_rsa():
-    return rsa.generate_private_key(public_exponent=65537, key_size=2048)
-
-def sign_data(priv_key, data):
-    signature = priv_key.sign(
-        data.encode(), 
-        padding.PSS(mgf=padding.MGF1(hashes.SHA256()), salt_length=padding.PSS.MAX_LENGTH), 
-        hashes.SHA256()
-    )
-    return base64.b64encode(signature).decode()
-
-def hash_data(data):
-    digest = hashes.Hash(hashes.SHA256())
-    digest.update(data.encode())
-    return base64.b64encode(digest.finalize()).decode()
-
-def sym_encrypt(key, data):
-    aes = AESGCM(key)
-    nonce = os.urandom(12)
-    ct = aes.encrypt(nonce, data.encode(), None)
-    return base64.b64encode(nonce + ct).decode()
-
-def sym_decrypt(key, b64_data):
-    raw = base64.b64decode(b64_data)
-    aes = AESGCM(key)
-    return aes.decrypt(raw[:12], raw[12:], None).decode()
-
-def asym_encrypt(pub_key_pem, data):
-    pub_key = serialization.load_pem_public_key(pub_key_pem.encode())
-    aes_key = AESGCM.generate_key(bit_length=256)
-    enc_aes_key = pub_key.encrypt(
-        aes_key, 
-        padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()), algorithm=hashes.SHA256(), label=None)
-    )
-    ct = base64.b64decode(sym_encrypt(aes_key, data))
-    return base64.b64encode(enc_aes_key + ct).decode()
-
-def run_server():
-    print("[*] Generating AS RSA Keys...")
-    as_priv = generate_as_rsa()
+def step_4_as_process(msg_3):
+    ID_P_rx, ID_AS_rx, ID_C_rx, encrypted_payload = msg_3
+    decrypted = crypto.decrypt_symmetric(k_AS_P, encrypted_payload)
+    TD, msg_2 = pickle.loads(decrypted)
     
-    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    server.bind((BIND_IP, PAYMENT_PORT))
-    server.listen(100)
-    print(f"[*] Authentication Server listening on {BIND_IP}:{PAYMENT_PORT}")
+    ID_C_msg2, ID_P_msg2, ID_AS_msg2, idC, msg_2_encrypted = msg_2
+    inner_payload = crypto.decrypt_asymmetric(sk_AS, msg_2_encrypted)
+    msg_1, RandomC, ReqP, ReqS, CertC, CertIB, sig_C = pickle.loads(inner_payload)
+    
+    kpc = AESGCM.generate_key(bit_length=256)
+    AuthC, AuthPOS = b"AuthC", b"AuthPOS"
+    
+    Conf1 = (ID_P, ID_C, ID_AS, kpc, TD, RandomC, CertIB, AuthC)
+    hash_AS = crypto.hash_payload(ID_P, ID_C, ID_AS, kpc, TD, RandomC, AuthPOS)
+    sig_AS = crypto.sign(sk_AS, hash_AS)
+    
+    conf2_inner = pickle.dumps((ID_P, ID_C, ID_AS, kpc, TD, RandomC, AuthPOS, sig_AS))
+    Conf2 = crypto.encrypt_asymmetric(pk_C, conf2_inner)
+    return crypto.encrypt_symmetric(k_AS_P, pickle.dumps((Conf1, Conf2)))
 
-    while True:
-        try:
-            client, addr = server.accept()
-            client.settimeout(2.0)
-            
-            try:
-                data = client.recv(8192).decode('utf-8')
-                if data:
-                    payload = json.loads(data)
-                    tx_num = payload.get("TransactionNumber", "Unknown")
-                    print(f"\n[+] Received Transaction #{tx_num} from POS ({addr[0]})")
+def step_5_pos_forward_to_card(msg_4):
+    decrypted = crypto.decrypt_symmetric(k_AS_P, msg_4)
+    Conf1, Conf2 = pickle.loads(decrypted)
+    ID_P_rx, ID_C_rx, ID_AS_rx, kpc, TD, RandomC, CertIB, AuthC = Conf1
+    
+    RandomPOS = os.urandom(8)
+    conf2_outer = crypto.encrypt_symmetric(kpc, pickle.dumps((RandomC, TD, RandomPOS)))
+    return kpc, (Conf2, conf2_outer)
+
+def step_6_pos_verify_bankdata(msg_6, kpc):
+    decrypted = crypto.decrypt_symmetric(kpc, msg_6)
+    ID_P_rx, ID_C_rx, ID_AS_rx, TD, RandomC, RandomPOS_1, BankData, sig_IB = pickle.loads(decrypted)
+    if crypto.verify(pk_IB, sig_IB, crypto.hash_payload(BankData)):
+        return BankData
+    return None
+
+def run_server(host='0.0.0.0', port=8443):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        s.bind((host, port))
+        s.listen(10)
+        print(f"POS/AS Listening on {host}:{port}")
+        
+        while True:
+            conn, addr = s.accept()
+            with conn:
+                try:
+                    msg_1 = step_1_pos_init()
+                    send_msg(conn, msg_1)
                     
-                    # Decrypt Step 3
-                    enc_payload_3 = payload.get("Encrypted_K_AS_POS")
-                    step_3 = json.loads(sym_decrypt(K_AS_POS, enc_payload_3))
+                    TD_card, RandomC_card, msg_2 = recv_msg(conn)
+                    msg_3 = step_3_pos_forward_to_as(TD_card, msg_2)
+                    msg_4 = step_4_as_process(msg_3)
+                    kpc_pos, msg_5 = step_5_pos_forward_to_card(msg_4)
                     
-                    td_nonce = step_3["TD"]
-                    step_2 = step_3["Step2"]
-                    random_c = step_2["RandomC"]
-                    c_pub_cert = step_2["CertC"] 
+                    send_msg(conn, msg_5)
+                    msg_6 = recv_msg(conn)
                     
-                    # AS generates the K(POS,C) session key
-                    k_pos_c = AESGCM.generate_key(bit_length=256)
-                    k_pos_c_b64 = base64.b64encode(k_pos_c).decode()
-                    
-                    # ==========================================
-                    # STEP 4: AS -> POS
-                    # ==========================================
-                    conf1 = {
-                        "POS": "POS", "C": "C", "AS": "AS", "K_POS_C": k_pos_c_b64, 
-                        "TD": td_nonce, "RandomC": random_c, "AuthC": "Verified"
-                    }
-                    
-                    h_as = hash_data(f"POS,C,AS,{k_pos_c_b64},{td_nonce},{random_c},AuthPOS")
-                    sig_as = sign_data(as_priv, h_as)
-                    
-                    conf2_plaintext = json.dumps({
-                        "POS": "POS", "C": "C", "AS": "AS", "K_POS_C": k_pos_c_b64,
-                        "TD": td_nonce, "RandomC": random_c, "AuthPOS": "Verified",
-                        "SigAS": sig_as
-                    })
-                    
-                    # Hybrid RSA Encrypt Conf2 with Card's Public Key
-                    conf2_encrypted = asym_encrypt(c_pub_cert, conf2_plaintext)
-                    
-                    step_4 = {"Conf1": conf1, "Conf2": conf2_encrypted}
-                    enc_step_4 = sym_encrypt(K_AS_POS, json.dumps(step_4))
-                    
-                    response_payload = {
-                        "TransactionNumber": tx_num,
-                        "Encrypted_K_AS_POS": enc_step_4
-                    }
-                    
-                    client.sendall(json.dumps(response_payload).encode('utf-8'))
-                    print(f"[*] Processed Step 4. Sent Encrypted {{Conf1, Conf2}} back to POS.")
-                    
-            except json.JSONDecodeError:
-                pass 
-            except socket.timeout:
-                pass
-            except Exception as e:
-                print(f"[-] Crypto/Verification Error: {e}")
-            finally:
-                client.close()
-                
-        except Exception as e:
-            print(f"[-] Server Error: {e}")
+                    final_data = step_6_pos_verify_bankdata(msg_6, kpc_pos)
+                    print(f"Transaction verified: {final_data}")
+                except Exception as e:
+                    pass
 
 if __name__ == "__main__":
     run_server()
