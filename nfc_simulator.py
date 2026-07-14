@@ -54,7 +54,7 @@ def simulate_transaction(server_ip, server_port=8443):
         print("Waiting for Server...")
 
 if __name__ == "__main__":
-    SERVER_IP = "10.0.0.x" # Replace with PC n's actual SDN IP address
+    SERVER_IP = "192.168.50.40" # Replace with PC n's actual SDN IP address
     while True:
         simulate_transaction(SERVER_IP)
         time.sleep(1) # Interval for normal traffic generation
