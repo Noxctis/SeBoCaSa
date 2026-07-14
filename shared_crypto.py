@@ -3,7 +3,7 @@ import hashlib
 import pickle
 import struct
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
-from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 class NFCCryptoEngine:
@@ -62,7 +62,9 @@ class NFCCryptoEngine:
         aesgcm = AESGCM(key)
         return aesgcm.decrypt(nonce, ciphertext, None)
 
-# Socket Helpers
+# ==========================================
+# SOCKET HELPERS
+# ==========================================
 def send_msg(sock, msg_data):
     serialized = pickle.dumps(msg_data)
     sock.sendall(struct.pack('>I', len(serialized)) + serialized)
@@ -81,19 +83,55 @@ def recvall(sock, n):
         data.extend(packet)
     return data
 
+# ==========================================
+# GLOBAL STATE & KEY MANAGEMENT
+# ==========================================
 crypto = NFCCryptoEngine()
+KEY_FILE = "nfc_keys.dat"
 
-# Static testbed keys (Must be identical on both ends)
-sk_P = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-pk_P = sk_P.public_key()
-sk_C = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-pk_C = sk_C.public_key()
-sk_AS = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-pk_AS = sk_AS.public_key()
-sk_IB = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-pk_IB = sk_IB.public_key()
+def load_or_generate_keys():
+    if os.path.exists(KEY_FILE):
+        with open(KEY_FILE, "rb") as f:
+            key_data = pickle.load(f)
+        
+        sk_P = serialization.load_pem_private_key(key_data['sk_P'], password=None)
+        pk_P = serialization.load_pem_public_key(key_data['pk_P'])
+        sk_C = serialization.load_pem_private_key(key_data['sk_C'], password=None)
+        pk_C = serialization.load_pem_public_key(key_data['pk_C'])
+        sk_AS = serialization.load_pem_private_key(key_data['sk_AS'], password=None)
+        pk_AS = serialization.load_pem_public_key(key_data['pk_AS'])
+        sk_IB = serialization.load_pem_private_key(key_data['sk_IB'], password=None)
+        pk_IB = serialization.load_pem_public_key(key_data['pk_IB'])
+        k_AS_P = key_data['k_AS_P']
+        
+        return sk_P, pk_P, sk_C, pk_C, sk_AS, pk_AS, sk_IB, pk_IB, k_AS_P
+    else:
+        print(f"Generating new keys and saving to {KEY_FILE}...")
+        
+        sk_P, pk_P = crypto.generate_rsa()
+        sk_C, pk_C = crypto.generate_rsa()
+        sk_AS, pk_AS = crypto.generate_rsa()
+        sk_IB, pk_IB = crypto.generate_rsa()
+        k_AS_P = AESGCM.generate_key(bit_length=256)
+        
+        key_data = {
+            'sk_P': sk_P.private_bytes(encoding=serialization.Encoding.PEM, format=serialization.PrivateFormat.PKCS8, encryption_algorithm=serialization.NoEncryption()),
+            'pk_P': pk_P.public_bytes(encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo),
+            'sk_C': sk_C.private_bytes(encoding=serialization.Encoding.PEM, format=serialization.PrivateFormat.PKCS8, encryption_algorithm=serialization.NoEncryption()),
+            'pk_C': pk_C.public_bytes(encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo),
+            'sk_AS': sk_AS.private_bytes(encoding=serialization.Encoding.PEM, format=serialization.PrivateFormat.PKCS8, encryption_algorithm=serialization.NoEncryption()),
+            'pk_AS': pk_AS.public_bytes(encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo),
+            'sk_IB': sk_IB.private_bytes(encoding=serialization.Encoding.PEM, format=serialization.PrivateFormat.PKCS8, encryption_algorithm=serialization.NoEncryption()),
+            'pk_IB': pk_IB.public_bytes(encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo),
+            'k_AS_P': k_AS_P
+        }
+        
+        with open(KEY_FILE, "wb") as f:
+            pickle.dump(key_data, f)
+            
+        return sk_P, pk_P, sk_C, pk_C, sk_AS, pk_AS, sk_IB, pk_IB, k_AS_P
 
-k_AS_P = b'\x00' * 32 # Static 256-bit AES key for AS-POS link
+sk_P, pk_P, sk_C, pk_C, sk_AS, pk_AS, sk_IB, pk_IB, k_AS_P = load_or_generate_keys()
 
 ID_P = b"POS"
 ID_C = b"C"
