@@ -79,3 +79,4 @@ if __name__ == "__main__":
         choice = input("Select mode: ")
         if choice == '0': stop_all()
         elif choice in ['1', '2', '3', '4', '5']: launch_attack(choice)
+        
