@@ -43,11 +43,16 @@ blocked_ips = set()
 
 def block_attacker(ip):
     if ip in blocked_ips: return
+    
+    # Record exact detection time for mitigation latency calculation
+    t_detect = time.time()
+    
     print(f"\n[!!!] VOLUMETRIC FLOOD DETECTED: {ip} - DEPLOYING OPENFLOW RULE")
+    print(f"[*] Detection Timestamp (T_detect): {t_detect:.3f}")
     
     payload = {
         "switch": SWITCH_DPID, 
-        "name": f"block-{ip.replace('.', '_')}", # Fixed naming convention for OVS
+        "name": f"block-{ip.replace('.', '_')}", 
         "priority": "32768", 
         "eth_type": "0x0800", 
         "ipv4_src": f"{ip}", 
@@ -55,9 +60,7 @@ def block_attacker(ip):
         "actions": ""
     }
     
-    # Modern Floodlight Endpoint (v1.0+)
     endpoint_new = f"http://{CONTROLLER_IP}:8080/wm/staticentrypusher/json"
-    # Legacy Floodlight Endpoint (v0.9)
     endpoint_old = f"http://{CONTROLLER_IP}:8080/wm/staticflowpusher/json"
     
     try:
@@ -108,7 +111,6 @@ def analyze_traffic():
             udp_r = data['udp'] / pps
             icmp_r = data['icmp'] / pps
             
-            # Use a dataframe or 2D array without feature names warning
             if clf.predict([[pps, bps, avg_size, tcp_r, udp_r, icmp_r]])[0] == 1 and ip not in blocked_ips:
                 if ip not in WHITELIST_IPS: block_attacker(ip)
 
