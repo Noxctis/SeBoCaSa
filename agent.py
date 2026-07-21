@@ -1,4 +1,4 @@
-from scapy.all import sniff, IP, TCP, UDP, ICMP, AsyncSniffer
+from scapy.all import sniff, IP, TCP, UDP, ICMP
 from sklearn.tree import DecisionTreeClassifier
 import pandas as pd
 import requests
@@ -13,7 +13,11 @@ MONITOR_INTERFACE = "Ethernet"
 MIN_PPS_THRESHOLD = 10
 WHITELIST_IPS = {"192.168.50.40", "192.168.50.240"}
 SWITCH_DPID = ""
-OVS_BRIDGE = "br0" # Adjust if your bridge name differs
+OVS_BRIDGE = "br0"
+
+traffic_stats = {}
+stats_lock = threading.Lock()
+blocked_ips = set()
 
 def get_switch_dpid():
     print("[*] Polling Floodlight Controller for active switches...")
@@ -40,10 +44,6 @@ except Exception as e:
     print(f"[-] Training Error: {e}")
     sys.exit(1)
 
-traffic_stats = {}
-stats_lock = threading.Lock()
-blocked_ips = set()
-
 def verify_mitigation_latency(ip, t_detect):
     time.sleep(2.0)
     try:
@@ -67,7 +67,8 @@ def verify_mitigation_latency(ip, t_detect):
         print(f"\n[-] Automated latency calculation failed: {e}")
 
 def block_attacker(ip):
-    if ip in blocked_ips: return
+    if ip in blocked_ips:
+        return
     
     t_detect = time.time()
     
@@ -94,18 +95,17 @@ def block_attacker(ip):
             print(f"[+] OpenFlow Rule ACCEPTED by Controller (Modern API). API Latency: {api_latency_ms:.2f} ms")
             blocked_ips.add(ip)
             threading.Thread(target=verify_mitigation_latency, args=(ip, t_detect), daemon=True).start()
+            return
+        
+        res_old = requests.post(endpoint_old, json=payload, timeout=2)
+        if res_old.status_code == 200:
+            api_latency_ms = (time.time() - t_detect) * 1000
+            print(f"[+] OpenFlow Rule ACCEPTED by Controller (Legacy API). API Latency: {api_latency_ms:.2f} ms")
+            blocked_ips.add(ip)
+            threading.Thread(target=verify_mitigation_latency, args=(ip, t_detect), daemon=True).start()
         else:
-            print(f"[-] Modern API rejected rule: {res.text}. Trying Legacy API...")
+            print(f"[-] API Rejected Rule. Modern: {res.text} | Legacy: {res_old.text}")
             
-            res_old = requests.post(endpoint_old, json=payload, timeout=2)
-            if res_old.status_code == 200:
-                api_latency_ms = (time.time() - t_detect) * 1000
-                print(f"[+] OpenFlow Rule ACCEPTED by Controller (Legacy API). API Latency: {api_latency_ms:.2f} ms")
-                blocked_ips.add(ip)
-                threading.Thread(target=verify_mitigation_latency, args=(ip, t_detect), daemon=True).start()
-            else:
-                print(f"[-] Legacy API also rejected rule: {res_old.text}")
-                
     except Exception as e:
         print(f"[-] API Request Failed to reach Controller: {e}")
 
@@ -140,7 +140,8 @@ def analyze_traffic():
             icmp_r = data['icmp'] / pps
             
             if clf.predict([[pps, bps, avg_size, tcp_r, udp_r, icmp_r]])[0] == 1 and ip not in blocked_ips:
-                if ip not in WHITELIST_IPS: block_attacker(ip)
+                if ip not in WHITELIST_IPS: 
+                    block_attacker(ip)
 
 def cleanup(sig=None, frame=None):
     print("\n[!] Shutting down. Removing OpenFlow drop rules...")
@@ -148,14 +149,24 @@ def cleanup(sig=None, frame=None):
     endpoint_new = f"http://{CONTROLLER_IP}:8080/wm/staticentrypusher/json"
     endpoint_old = f"http://{CONTROLLER_IP}:8080/wm/staticflowpusher/json"
     
-    for ip in blocked_ips:
+    for ip in list(blocked_ips):
         rule_name = f"block-{ip.replace('.', '_')}"
-        payload = {"name": rule_name}
+        payload = {
+            "switch": SWITCH_DPID,
+            "name": rule_name
+        }
         
         try:
             res_new = requests.delete(endpoint_new, json=payload, timeout=2)
+            if res_new.status_code == 200:
+                print(f"[+] Successfully removed OpenFlow rule via Modern API: {rule_name}")
+                continue
+            
             res_old = requests.delete(endpoint_old, json=payload, timeout=2)
-            print(f"[+] Successfully removed OpenFlow rule: {rule_name}")
+            if res_old.status_code == 200:
+                print(f"[+] Successfully removed OpenFlow rule via Legacy API: {rule_name}")
+            else:
+                print(f"[-] Failed to remove rule {rule_name}. Modern API: {res_new.status_code}, Legacy API: {res_old.status_code}")
         except Exception as e:
             print(f"[-] Failed to contact controller to remove rule {rule_name}: {e}")
             
@@ -163,6 +174,8 @@ def cleanup(sig=None, frame=None):
 
 if __name__ == '__main__':
     signal.signal(signal.SIGINT, cleanup)
+    signal.signal(signal.SIGTERM, cleanup)
+    
     SWITCH_DPID = get_switch_dpid()
     
     threading.Thread(target=analyze_traffic, daemon=True).start()
