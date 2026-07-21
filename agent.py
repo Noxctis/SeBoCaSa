@@ -6,12 +6,14 @@ import threading
 import time
 import sys
 import signal
+import subprocess
 
 CONTROLLER_IP = "192.168.50.240"
 MONITOR_INTERFACE = "Ethernet"
 MIN_PPS_THRESHOLD = 10
 WHITELIST_IPS = {"192.168.50.40", "192.168.50.50", "192.168.50.240"}
 SWITCH_DPID = ""
+OVS_BRIDGE = "br0" # Adjust if your bridge name differs
 
 def get_switch_dpid():
     print("[*] Polling Floodlight Controller for active switches...")
@@ -35,19 +37,46 @@ try:
     clf = DecisionTreeClassifier(max_depth=5, criterion='entropy', random_state=42)
     clf.fit(df[features].values, df['label'])
 except Exception as e:
-    print(f"[-] Training Error: {e}"); sys.exit(1)
+    print(f"[-] Training Error: {e}")
+    sys.exit(1)
 
 traffic_stats = {}
 stats_lock = threading.Lock()
 blocked_ips = set()
 
+def verify_mitigation_latency(ip, t_detect):
+    time.sleep(2.0)
+    try:
+        cmd = f"date +%s.%3N && sudo ovs-ofctl dump-flows {OVS_BRIDGE} | grep 'nw_src={ip}'"
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        
+        lines = result.stdout.strip().split('\n')
+        if len(lines) >= 2:
+            t_query = float(lines[0])
+            duration_part = [part for part in lines[1].split(',') if 'duration=' in part][0]
+            d_flow = float(duration_part.split('=')[1].replace('s', ''))
+            
+            install_time = t_query - d_flow
+            latency_ms = (install_time - t_detect) * 1000
+            
+            print(f"\n[*] True Datapath Mitigation Latency for {ip}: {latency_ms:.2f} ms")
+        else:
+            print(f"\n[-] Could not find flow rule in OVS for {ip} to calculate latency.")
+            
+    except Exception as e:
+        print(f"\n[-] Automated latency calculation failed: {e}")
+
 def block_attacker(ip):
     if ip in blocked_ips: return
+    
+    t_detect = time.time()
+    
     print(f"\n[!!!] VOLUMETRIC FLOOD DETECTED: {ip} - DEPLOYING OPENFLOW RULE")
+    print(f"[*] Detection Timestamp (T_detect): {t_detect:.3f}")
     
     payload = {
         "switch": SWITCH_DPID, 
-        "name": f"block-{ip.replace('.', '_')}", # Fixed naming convention for OVS
+        "name": f"block-{ip.replace('.', '_')}", 
         "priority": "32768", 
         "eth_type": "0x0800", 
         "ipv4_src": f"{ip}", 
@@ -55,23 +84,25 @@ def block_attacker(ip):
         "actions": ""
     }
     
-    # Modern Floodlight Endpoint (v1.0+)
     endpoint_new = f"http://{CONTROLLER_IP}:8080/wm/staticentrypusher/json"
-    # Legacy Floodlight Endpoint (v0.9)
     endpoint_old = f"http://{CONTROLLER_IP}:8080/wm/staticflowpusher/json"
     
     try:
         res = requests.post(endpoint_new, json=payload, timeout=2)
         if res.status_code == 200:
-            print("[+] OpenFlow Rule ACCEPTED by Controller (Modern API).")
+            api_latency_ms = (time.time() - t_detect) * 1000
+            print(f"[+] OpenFlow Rule ACCEPTED by Controller (Modern API). API Latency: {api_latency_ms:.2f} ms")
             blocked_ips.add(ip)
+            threading.Thread(target=verify_mitigation_latency, args=(ip, t_detect), daemon=True).start()
         else:
             print(f"[-] Modern API rejected rule: {res.text}. Trying Legacy API...")
             
             res_old = requests.post(endpoint_old, json=payload, timeout=2)
             if res_old.status_code == 200:
-                print("[+] OpenFlow Rule ACCEPTED by Controller (Legacy API).")
+                api_latency_ms = (time.time() - t_detect) * 1000
+                print(f"[+] OpenFlow Rule ACCEPTED by Controller (Legacy API). API Latency: {api_latency_ms:.2f} ms")
                 blocked_ips.add(ip)
+                threading.Thread(target=verify_mitigation_latency, args=(ip, t_detect), daemon=True).start()
             else:
                 print(f"[-] Legacy API also rejected rule: {res_old.text}")
                 
@@ -108,7 +139,6 @@ def analyze_traffic():
             udp_r = data['udp'] / pps
             icmp_r = data['icmp'] / pps
             
-            # Use a dataframe or 2D array without feature names warning
             if clf.predict([[pps, bps, avg_size, tcp_r, udp_r, icmp_r]])[0] == 1 and ip not in blocked_ips:
                 if ip not in WHITELIST_IPS: block_attacker(ip)
 
