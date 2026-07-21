@@ -19,22 +19,37 @@ clf.fit(X.values, y)
 # 3. Generate predictions for metric evaluation
 y_pred = clf.predict(X.values)
 
-# 4. Generate Visual Tree
-plt.figure(figsize=(20, 10))
+# 4. Generate Visual Tree (Improved for Readability)
+plt.figure(figsize=(30, 15))
 plot_tree(
     clf, 
     feature_names=features, 
     class_names=['Normal (0)', 'Attack (1)'], 
     filled=True, 
     rounded=True, 
-    fontsize=10,
-    proportion=False
+    fontsize=11,
+    impurity=False,
+    node_ids=True,
+    proportion=False,
+    precision=2
 )
-plt.title("SDN Anomaly Detection Decision Tree (Cryptographic NFC Payload Rules)", fontsize=16)
+plt.title("SDN Anomaly Detection Decision Tree (Cryptographic NFC Payload Rules)", fontsize=22, fontweight='bold')
+
+# Embed a reading guide directly onto the image canvas
+guide_text = (
+    "HOW TO READ THIS TREE:\n"
+    "- Condition (e.g., pps <= 500): If TRUE, follow the LEFT branch. If FALSE, follow the RIGHT branch.\n"
+    "- Node #0 (Top): The most important feature separating Normal from Attack traffic.\n"
+    "- Colors: Orange = Normal (0), Blue = Attack (1).\n"
+    "- Color Intensity: Darker shade = High confidence (pure node). Lighter shade = Mixed traffic (uncertainty).\n"
+    "- Leaves (Bottom Nodes): The final classification decision pushed to the SDN agent."
+)
+plt.figtext(0.015, 0.015, guide_text, fontsize=12, bbox=dict(facecolor='white', alpha=0.9, edgecolor='black'))
+
 plt.tight_layout()
 
 output_image = "decision_tree_visual.png"
-plt.savefig(output_image, dpi=300)
+plt.savefig(output_image, dpi=400)
 print(f"[*] Visual tree saved as '{output_image}'.")
 plt.close()
 
@@ -42,7 +57,7 @@ plt.close()
 report_file = "model_documentation_report.txt"
 with open(report_file, "w") as f:
     f.write("====================================================\n")
-    f.write("      DECISION TREE MODEL EVALUATION REPORT         \n")
+    f.write("       DECISION TREE MODEL EVALUATION REPORT        \n")
     f.write("====================================================\n\n")
     
     f.write(f"Total Flow Records Analyzed: {len(df)}\n")
