@@ -11,7 +11,7 @@ import subprocess
 CONTROLLER_IP = "192.168.50.240"
 MONITOR_INTERFACE = "Ethernet"
 MIN_PPS_THRESHOLD = 10
-WHITELIST_IPS = {"192.168.50.40", "192.168.50.50", "192.168.50.240"}
+WHITELIST_IPS = {"192.168.50.240"}
 SWITCH_DPID = ""
 OVS_BRIDGE = "br0" # Adjust if your bridge name differs
 
