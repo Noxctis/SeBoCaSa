@@ -1,80 +1,76 @@
-usertype SessionKey;
-usertype BankData;
-usertype text;
-usertype Nonce;
-
-hashfunction H;
-
-const CertP, CertAB, CertC, CertIB, AuthC, AuthPOS: text;
-
-protocol OnlineNFCProtocol(P, C, AS)
-{
-  role P
-  {
-    fresh TD, RP1: Nonce;
-    fresh ReqC: text;
-    var kpc: SessionKey;
-    var id, ReqP, ReqS: text;
-    var X: BankData;
-
-    send_1 (P,C, P,C, TD, ReqC, CertP, CertAB, {H(C,P, TD, ReqC)}sk(P));
-
-    recv_2 (C,P, C, P, AS, id, {TD, ReqC, CertP, CertAB, {H(C,P, TD, ReqC)}sk(P), CertC, CertIB, H(id,TD), ReqP, ReqS, {H(C,P,AS, H(id,TD), ReqP, ReqS)}sk(C)}pk(AS));
-
-    send_3 (P,AS,P,C, AS, {TD, id, {TD, ReqC, CertP, CertAB, {H(C,P, TD, ReqC)}sk(P), CertC, CertIB, H(id,TD), ReqP, ReqS, {H(C,P,AS, H(id,TD), ReqP, ReqS)}sk(C)}pk(AS)}k(AS,P));
-
-    recv_4 (AS,P, {P, C, AS, kpc, TD, H(id,TD), CertIB, AuthC, {P, C, AS, kpc, TD, H(id,TD), AuthPOS, {H(P, C, AS, kpc, TD, H(id,TD), AuthPOS)}sk(AS)}pk(C)}k(AS,P));
-
-    send_5 (P,C, {P, C, AS, kpc, TD, H(id,TD), AuthPOS, {H(P, C, AS, kpc, TD, H(id,TD), AuthPOS)}sk(AS)}pk(C), {H(id,TD), TD, RP1}kpc);
-
-    recv_6 (C,P, {P, C, AS, TD, H(id,TD), RP1, X, {H(X)}sk(C)}kpc);
-
-    claim(P, Nisynch);
-    claim(P, Niagree);
-    claim(P, Alive);
-    claim(P, Weakagree);
-    claim(P, Secret, X);
-    claim(P, SKR, kpc);
-  }
-
-  role C
-  {
-    var TD, RP1: Nonce;
-    var kpc: SessionKey;
-    fresh id, ReqP, ReqS: text;
-    var ReqC: text;
-    fresh X: BankData;
-
-    recv_1 (P,C, P,C, TD, ReqC, CertP, CertAB, {H(C,P, TD, ReqC)}sk(P));
-
-    send_2(C,P, C, P, AS, id, {TD, ReqC, CertP, CertAB, {H(C,P, TD, ReqC)}sk(P), CertC, CertIB, H(id,TD), ReqP, ReqS, {H(C,P,AS, H(id,TD), ReqP, ReqS)}sk(C)}pk(AS));
-
-    recv_5 (P,C, {P, C, AS, kpc, TD, H(id,TD), AuthPOS, {H(P, C, AS, kpc, TD, H(id,TD), AuthPOS)}sk(AS)}pk(C), {H(id,TD), TD, RP1}kpc);
-
-    send_6 (C,P, {P, C, AS, TD, H(id,TD), RP1, X, {H(X)}sk(C)}kpc);
-
-    claim(C, Nisynch);
-    claim(C, Niagree);
-    claim(C, Alive);
-    claim(C, Weakagree);
-    claim(C, Secret, X);
-    claim(C, SKR, kpc);
-  }
-
-  role AS
-  {
-    var TD: Nonce;
-    fresh kpc: SessionKey;
-    var id, ReqC, ReqP, ReqS: text;
-
-    recv_3 (P,AS,P,C, AS, {TD, id, {TD, ReqC, CertP, CertAB, {H(C,P, TD, ReqC)}sk(P), CertC, CertIB, H(id,TD), ReqP, ReqS, {H(C,P,AS, H(id,TD), ReqP, ReqS)}sk(C)}pk(AS)}k(AS,P));
-
-    send_4 (AS,P, {P, C, AS, kpc, TD, H(id,TD), CertIB, AuthC, {P, C, AS, kpc, TD, H(id,TD), AuthPOS, {H(P, C, AS, kpc, TD, H(id,TD), AuthPOS)}sk(AS)}pk(C)}k(AS,P));
-
-    claim(AS, Nisynch);
-    claim(AS, Niagree);
-    claim(AS, Alive);
-    claim(AS, Weakagree);
-    claim(AS, SKR, kpc);
-  }
+usertype SessionKey;
+usertype BankData;
+usertype text;
+usertype Nonce;
+
+hashfunction H;
+
+const CertP, CertAB, CertC, CertIB, AuthC, AuthPOS: text;
+
+protocol OnlineNFCProtocol(P, C, AS)
+{
+  role P
+  {
+    fresh TD, RP1: Nonce;
+    fresh ReqC: text;
+    var kpc: SessionKey;
+    var id, ReqP, ReqS: text;
+    var X: BankData;
+
+    send_1 (P,C, P,C, TD, ReqC, CertP, CertAB, {H(C,P, TD, ReqC)}sk(P));
+    recv_2 (C,P, C, P, AS, id, {TD, ReqC, CertP, CertAB, {H(C,P, TD, ReqC)}sk(P), CertC, CertIB, H(id,TD), ReqP, ReqS, {H(C,P,AS, H(id,TD), ReqP, ReqS)}sk(C)}pk(AS));
+    send_3 (P,AS,P,C, AS, {TD, id, {TD, ReqC, CertP, CertAB, {H(C,P, TD, ReqC)}sk(P), CertC, CertIB, H(id,TD), ReqP, ReqS, {H(C,P,AS, H(id,TD), ReqP, ReqS)}sk(C)}pk(AS)}k(AS,P));
+    recv_4 (AS,P, {P, C, AS, kpc, TD, H(id,TD), CertIB, AuthC, {P, C, AS, kpc, TD, H(id,TD), AuthPOS, {H(P, C, AS, kpc, TD, H(id,TD), AuthPOS)}sk(AS)}pk(C)}k(AS,P));
+    send_5 (P,C, {P, C, AS, kpc, TD, H(id,TD), AuthPOS, {H(P, C, AS, kpc, TD, H(id,TD), AuthPOS)}sk(AS)}pk(C), {H(id,TD), TD, RP1}kpc);
+    recv_6 (C,P, {P, C, AS, TD, H(id,TD), RP1, X, {H(X)}sk(C)}kpc);
+
+    claim(P, Reachable);
+    claim(P, Nisynch);
+    claim(P, Niagree);
+    claim(P, Alive);
+    claim(P, Weakagree);
+    claim(P, Secret, X);
+    claim(P, Secret, RP1);
+    claim(P, SKR, kpc);
+  }
+
+  role C
+  {
+    var TD, RP1: Nonce;
+    var kpc: SessionKey;
+    fresh id, ReqP, ReqS: text;
+    var ReqC: text;
+    fresh X: BankData;
+
+    recv_1 (P,C, P,C, TD, ReqC, CertP, CertAB, {H(C,P, TD, ReqC)}sk(P));
+    send_2(C,P, C, P, AS, id, {TD, ReqC, CertP, CertAB, {H(C,P, TD, ReqC)}sk(P), CertC, CertIB, H(id,TD), ReqP, ReqS, {H(C,P,AS, H(id,TD), ReqP, ReqS)}sk(C)}pk(AS));
+    recv_5 (P,C, {P, C, AS, kpc, TD, H(id,TD), AuthPOS, {H(P, C, AS, kpc, TD, H(id,TD), AuthPOS)}sk(AS)}pk(C), {H(id,TD), TD, RP1}kpc);
+    send_6 (C,P, {P, C, AS, TD, H(id,TD), RP1, X, {H(X)}sk(C)}kpc);
+
+    claim(C, Reachable);
+    claim(C, Nisynch);
+    claim(C, Niagree);
+    claim(C, Alive);
+    claim(C, Weakagree);
+    claim(C, Secret, X);
+    claim(C, Secret, RP1);
+    claim(C, SKR, kpc);
+  }
+
+  role AS
+  {
+    var TD: Nonce;
+    fresh kpc: SessionKey;
+    var id, ReqC, ReqP, ReqS: text;
+
+    recv_3 (P,AS,P,C, AS, {TD, id, {TD, ReqC, CertP, CertAB, {H(C,P, TD, ReqC)}sk(P), CertC, CertIB, H(id,TD), ReqP, ReqS, {H(C,P,AS, H(id,TD), ReqP, ReqS)}sk(C)}pk(AS)}k(AS,P));
+    send_4 (AS,P, {P, C, AS, kpc, TD, H(id,TD), CertIB, AuthC, {P, C, AS, kpc, TD, H(id,TD), AuthPOS, {H(P, C, AS, kpc, TD, H(id,TD), AuthPOS)}sk(AS)}pk(C)}k(AS,P));
+
+    claim(AS, Reachable);
+    claim(AS, Nisynch);
+    claim(AS, Niagree);
+    claim(AS, Alive);
+    claim(AS, Weakagree);
+    claim(AS, SKR, kpc);
+  }
 }
