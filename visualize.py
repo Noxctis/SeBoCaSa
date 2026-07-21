@@ -19,8 +19,13 @@ clf.fit(X.values, y)
 # 3. Generate predictions for metric evaluation
 y_pred = clf.predict(X.values)
 
-# 4. Generate Visual Tree (Improved for Readability)
-plt.figure(figsize=(30, 15))
+# 4. Generate Visual Tree
+# Increased height to 18 to make room for the text box at the bottom
+plt.figure(figsize=(30, 18)) 
+
+# This forces the tree to leave the bottom 15% of the image empty so text doesn't block it
+plt.subplots_adjust(bottom=0.15) 
+
 plot_tree(
     clf, 
     feature_names=features, 
@@ -35,18 +40,18 @@ plot_tree(
 )
 plt.title("SDN Anomaly Detection Decision Tree (Cryptographic NFC Payload Rules)", fontsize=22, fontweight='bold')
 
-# Embed a reading guide directly onto the image canvas
+# Updated guide text explaining the exact terminology inside the boxes
 guide_text = (
-    "HOW TO READ THIS TREE:\n"
-    "- Condition (e.g., pps <= 500): If TRUE, follow the LEFT branch. If FALSE, follow the RIGHT branch.\n"
-    "- Node #0 (Top): The most important feature separating Normal from Attack traffic.\n"
-    "- Colors: Orange = Normal (0), Blue = Attack (1).\n"
-    "- Color Intensity: Darker shade = High confidence (pure node). Lighter shade = Mixed traffic (uncertainty).\n"
-    "- Leaves (Bottom Nodes): The final classification decision pushed to the SDN agent."
+    "HOW TO READ THE BOXES:\n"
+    "• Condition (Top line, e.g., pps <= 500): The rule being checked. If TRUE, follow the LEFT arrow. If FALSE, follow the RIGHT arrow.\n"
+    "• samples: The total number of network flow records from your CSV that reached this specific box.\n"
+    "• value = [X, Y]: X is the number of Normal flows. Y is the number of Attack flows inside this box.\n"
+    "• class: The final decision for this box based on the majority value (Normal or Attack).\n"
+    "• Colors: Orange = Normal, Blue = Attack. Darker color = Higher certainty. Lighter color = Mixed traffic."
 )
-plt.figtext(0.015, 0.015, guide_text, fontsize=12, bbox=dict(facecolor='white', alpha=0.9, edgecolor='black'))
 
-plt.tight_layout()
+# Placed at the bottom center (0.5) of the figure in the empty space created by subplots_adjust
+plt.figtext(0.5, 0.02, guide_text, ha='center', fontsize=14, bbox=dict(facecolor='white', alpha=0.9, edgecolor='black'))
 
 output_image = "decision_tree_visual.png"
 plt.savefig(output_image, dpi=400)
